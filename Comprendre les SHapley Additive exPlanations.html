@@ -14261,32 +14261,54 @@ a.anchor-link {
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput " data-mime-type="text/markdown">
 <h1 id="Comprendre-les-SHapley-Additive-exPlanations">Comprendre les SHapley Additive exPlanations<a class="anchor-link" href="#Comprendre-les-SHapley-Additive-exPlanations">&#182;</a></h1><p>Plusieurs challenges peuvent dissuader de mettre un modèle en production :</p>
 <ul>
-<li>la distribution d'un phénomène modélisé peut changer avec le temps, rendant par là même caduques les prédictions,</li>
+<li>la distribution d'un phénomène modélisé peut changer avec le temps, rendant par là même caduques les prédictions*,</li>
 <li>le modèle peut requérir un temps important pour prédire de nouvelles observations,</li>
 <li>et sa complexité le rendre peu interprétable/acceptable auprès des utilisateurs finaux.</li>
 </ul>
+<p>* À cet effet, l’ACPR distingue la validation initiale de la validation continue des modèle, afin de s’assurer en permanence que les décisions qu’ils prennent font sens.</p>
 <p>Sur ce dernier point, il existe une méthode permettant de concillier la performance de modèles complexes (ex : RF, GBM, SVM, ... ) avec l'interprétabilité inhérente de modèles plus simples (ex : GLM, arbre, ... ).</p>
 <p>Ce notebook implémente l'article <a href='https://arxiv.org/pdf/1705.07874.pdf'><i>A Unified Approach to Interpreting Model Predictions</i></a>, dans le cas d'une random forest dont on cherche à expliquer la contribution de chaque variable utilisée pour prédire une nouvelle observation. C'est justement le but des <i>SHAP values</i>.</p>
 <p><br>
 <span class='bg-warning text-danger'>
 NB : bien que mi-théorique mi-technique, cet article pour être compris ne requiert ni la connaissance du langage Python ni de doctorat en mathématique. Il suffit d'ignorer le code et de se référer aux sorties à la place.
 </span></p>
-<p><b>Sommaire :</b></p>
-<ol>
-<li><a href="#Création-de-données-fictives-et-modélisation-basique">Création de données fictives et modélisation basique</a></li>
-<li><a href="#Présentation-générale-de-la-méthode">Présentation générale de la méthode</a></li>
-</ol>
 <p>Ce notebook s'exécute en <font color='red'>~1 mn 30 s</font>.</p>
 
 </div>
 </div>
 <div class="jp-Cell-inputWrapper"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput " data-mime-type="text/markdown">
-<h3 id="Pr&#233;sentation-g&#233;n&#233;rale-de-la-m&#233;thode">Pr&#233;sentation g&#233;n&#233;rale de la m&#233;thode<a class="anchor-link" href="#Pr&#233;sentation-g&#233;n&#233;rale-de-la-m&#233;thode">&#182;</a></h3><p>Le mathématicien Loyd Shapley est à l'origine des <em>Shapley values</em>, une méthode issue de la théorie des jeux.</p>
+<p><b>Sommaire :</b></p>
+<ol>
+<li><a href="#Présentation-générale-de-la-méthode">Présentation générale de la méthode</a><ol>
+<li><a href="#Terminologies">Terminologies</a></li>
+<li><a href="#Création-de-données-fictives-et-modélisation-basique">Création de données fictives et modélisation basique</a></li>
+<li><a href="#Yes,-we-can-$\rightarrow$-avec-le-package-shap">Le package SHAP</a></li>
+<li><a href="#Waterfall-chart-de-la-contribution-des-variables-à-la-prédiction-d&#39;une-observation">Waterfall chart de la contribution des variables à la prédiction d'une observation</a></li>
+<li><a href="#Interprétation-globale-du-modèle">Interprétation globale du modèle</a></li>
+<li><a href="Théorie-derrière-les-valeurs-de-Shapley---vérification-des-quatres-propriétés-des-valeurs-de-Shapley">Théorie derrière les valeurs de Shapley - vérification des 4 propriétés théoriques</a></li>
+</ol>
+</li>
+<li><a href="#Implémentation-en-python">Implémentation en python</a><ol>
+<li><a href="#Création-des-coalitions">Création des coalitions</a></li>
+<li><a href="#Génération-des-poids">Génération des poids</a></li>
+<li><a href="#Génération-des-instances-perturbées">Génération des instances perturbées</a></li>
+<li><a href="#Prédiction-du-modèle-lorsque-les-instances-sont-perturbées">Prédiction du modèle lorsque les instances sont perturbées</a></li>
+<li><a href="#Putting-it-all-together">Putting it all together</a></li>
+</ol>
+</li>
+<li><a href="#Conclusions">Conclusions</a></li>
+</ol>
+
+</div>
+</div>
+<div class="jp-Cell-inputWrapper"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput " data-mime-type="text/markdown">
+<h2 id="Pr&#233;sentation-g&#233;n&#233;rale-de-la-m&#233;thode">Pr&#233;sentation g&#233;n&#233;rale de la m&#233;thode<a class="anchor-link" href="#Pr&#233;sentation-g&#233;n&#233;rale-de-la-m&#233;thode">&#182;</a></h2><p>Le mathématicien Loyd Shapley est à l'origine des <em>Shapley values</em>, une méthode issue de la théorie des jeux coopératifs.</p>
 <p>Cette méthode est :</p>
 <ul>
 <li><i>model agnostic</i> : elle permet d'expliquer la prédiction de n'importe quel modèle, paramétrique ou non, ensembliste ou non.</li>
-<li><i>locale</i>, au sens où elle explique avant tout une prédiction à un niveau micro, plutôt que le fonctionnement global d'un modèle.</li>
+<li><i>locale</i>, au sens où elle explique avant tout une prédiction à un niveau micro, plutôt que le fonctionnement global d'un modèle (comme le ferait par exemple la <em>feature importance</em> d'une forêt aléatoire).</li>
 </ul>
 
 </div>
@@ -14299,6 +14321,7 @@ NB : bien que mi-théorique mi-technique, cet article pour être compris ne requ
 <li>$f(x_i)$ un modèle complexe (une forêt aléatoire p. ex.) que l'on cherche à expliquer par </li>
 <li>$g(x_i)$, un modèle simple (régression linéaire), explicatif <b>localement$^*$</b>de $f$.</li>
 </ul>
+<p>Métaphoriquement parlant, $m$ joueurs (variables) collaborent ensemble à un jeu et obtiennent un gain (la prédiction). Comment répartir ce gain de façon équitable entre les joueurs, c'est-à-dire de façon proportionnelle à leur contribution individuelle ?</p>
 
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell   ">
@@ -14736,9 +14759,9 @@ $$y_i = 3a_i - b_i + 4d_i + 0.5e_i ~~\forall i$$</p>
 
 
 
-<div id="cbcd950c-aa2a-4c41-8fe7-1b2839832170" class="jupyter-widgets jp-OutputArea-output ">
+<div id="d6a00a4a-3a8c-48bf-9989-5863e8995847" class="jupyter-widgets jp-OutputArea-output ">
 <script type="text/javascript">
-var element = document.getElementById('cbcd950c-aa2a-4c41-8fe7-1b2839832170');
+var element = document.getElementById('d6a00a4a-3a8c-48bf-9989-5863e8995847');
 </script>
 <script type="application/vnd.jupyter.widget-view+json">
 {"model_id": "d62b83f40c22415d8f37905a53d45b61", "version_major": 2, "version_minor": 0}
@@ -15070,9 +15093,9 @@ variable à la prédiction.</p>
 
 
 
-<div id="9b46f4c5-3672-4a00-bb60-48f376c61184" class="jupyter-widgets jp-OutputArea-output ">
+<div id="1eeb5f56-eaa7-4051-a8f8-c8a605101760" class="jupyter-widgets jp-OutputArea-output ">
 <script type="text/javascript">
-var element = document.getElementById('9b46f4c5-3672-4a00-bb60-48f376c61184');
+var element = document.getElementById('1eeb5f56-eaa7-4051-a8f8-c8a605101760');
 </script>
 <script type="application/vnd.jupyter.widget-view+json">
 {"model_id": "4f7977d2a0d14e1aa2b80dd1b2be397e", "version_major": 2, "version_minor": 0}
@@ -15151,7 +15174,7 @@ var element = document.getElementById('9b46f4c5-3672-4a00-bb60-48f376c61184');
 </div>
 <div class="jp-Cell-inputWrapper"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput " data-mime-type="text/markdown">
-<h3 id="Th&#233;orie-derri&#232;re-les-valeurs-de-Shapley">Th&#233;orie derri&#232;re les valeurs de Shapley<a class="anchor-link" href="#Th&#233;orie-derri&#232;re-les-valeurs-de-Shapley">&#182;</a></h3><p>On pourrait s'arrêter à la simple utilisation du package shap. Cependant, comprendre <i>comment</i> les SHAP values sont calculées n'est pas denué d'intérêt.</p>
+<h3 id="Th&#233;orie-derri&#232;re-les-valeurs-de-Shapley---v&#233;rification-des-quatres-propri&#233;t&#233;s-des-valeurs-de-Shapley">Th&#233;orie derri&#232;re les valeurs de Shapley - v&#233;rification des quatres propri&#233;t&#233;s des valeurs de Shapley<a class="anchor-link" href="#Th&#233;orie-derri&#232;re-les-valeurs-de-Shapley---v&#233;rification-des-quatres-propri&#233;t&#233;s-des-valeurs-de-Shapley">&#182;</a></h3><p>On pourrait s'arrêter à la simple utilisation du package shap. Cependant, comprendre <i>comment</i> les SHAP values sont calculées n'est pas denué d'intérêt.</p>
 <p>Considérons un sous-ensemble de cette problématique pour nous demander</p>
 <center class='text-success'><b>Comment la variable <i>D</i> a-t-elle contribué à la prédiction du modèle ?</b></center><p>Intuitivement, la contribution d'une variable à une prédiction est l'écart absolu entre :</p>
 <ol>
@@ -15201,6 +15224,17 @@ m : 5
 
 </div>
 
+</div>
+<div class="jp-Cell-inputWrapper"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput " data-mime-type="text/markdown">
+<p>TODO !</p>
+
+</div>
+</div>
+<div class="jp-Cell-inputWrapper"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput " data-mime-type="text/markdown">
+<h2 id="Impl&#233;mentation-en-python">Impl&#233;mentation en python<a class="anchor-link" href="#Impl&#233;mentation-en-python">&#182;</a></h2>
+</div>
 </div>
 <div class="jp-Cell-inputWrapper"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput " data-mime-type="text/markdown">
@@ -15333,6 +15367,11 @@ m : 5
 $$poids(coalition) = \frac{|coalition|!(m-|coalition|-1)!}{m!}$$</p>
 
 </div>
+</div>
+<div class="jp-Cell-inputWrapper"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput " data-mime-type="text/markdown">
+<h3 id="G&#233;n&#233;ration-des-poids">G&#233;n&#233;ration des poids<a class="anchor-link" href="#G&#233;n&#233;ration-des-poids">&#182;</a></h3>
+</div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs  ">
 <div class="jp-Cell-inputWrapper">
 <div class="jp-InputArea jp-Cell-inputArea">
@@ -15446,6 +15485,11 @@ L'intuition (pas forcément évidente de prime abord) est la suivante :</p>
 <p><em>Intuitively, this gives the highest weight to the most informative contributions of a player, i.e. when it is either isolated or when it is added to an otherwise full coalition.</em></p>
 </blockquote>
 
+</div>
+</div>
+<div class="jp-Cell-inputWrapper"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput " data-mime-type="text/markdown">
+<h3 id="G&#233;n&#233;ration-des-instances-perturb&#233;es">G&#233;n&#233;ration des instances perturb&#233;es<a class="anchor-link" href="#G&#233;n&#233;ration-des-instances-perturb&#233;es">&#182;</a></h3>
 </div>
 </div>
 <div class="jp-Cell-inputWrapper"><div class="jp-InputPrompt jp-InputArea-prompt">
@@ -15797,6 +15841,11 @@ L'intuition (pas forcément évidente de prime abord) est la suivante :</p>
 </div>
 <div class="jp-Cell-inputWrapper"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput " data-mime-type="text/markdown">
+<h3 id="Pr&#233;diction-du-mod&#232;le-lorsque-les-instances-sont-perturb&#233;es">Pr&#233;diction du mod&#232;le lorsque les instances sont perturb&#233;es<a class="anchor-link" href="#Pr&#233;diction-du-mod&#232;le-lorsque-les-instances-sont-perturb&#233;es">&#182;</a></h3>
+</div>
+</div>
+<div class="jp-Cell-inputWrapper"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput " data-mime-type="text/markdown">
 <p>On rappelle l'observation que l'on cherche à expliquer et le processus générateur (connu pour l'exemple) :</p>
 
 </div>
@@ -15922,6 +15971,11 @@ $$y = 3a - b + 4d + 0.5e$$
 </div>
 </div>
 
+</div>
+<div class="jp-Cell-inputWrapper"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput " data-mime-type="text/markdown">
+<h3 id="Putting-it-all-together">Putting it all together<a class="anchor-link" href="#Putting-it-all-together">&#182;</a></h3>
+</div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell   ">
 <div class="jp-Cell-inputWrapper">
 <div class="jp-InputArea jp-Cell-inputArea">
@@ -16185,7 +16239,7 @@ Somme des contributions pondérées de la variable D : -1.330156
 </div>
 <div class="jp-Cell-inputWrapper"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput " data-mime-type="text/markdown">
-<h3 id="Conclusions">Conclusions<a class="anchor-link" href="#Conclusions">&#182;</a></h3>
+<h2 id="Conclusions">Conclusions<a class="anchor-link" href="#Conclusions">&#182;</a></h2>
 </div>
 </div>
 <div class="jp-Cell-inputWrapper"><div class="jp-InputPrompt jp-InputArea-prompt">
@@ -16204,6 +16258,12 @@ Somme des contributions pondérées de la variable D : -1.330156
 </li>
 <li><p>L'interprétation des prédictions d'un modèle est à la hauteur de ses performances. Naturellement, rien ne sert de chercher à interpréter un modèle dont les prédictions s'écartent trop de la réalité (sauf éventuellement à des fins de diagnostic).</p>
 </li>
+<li><p>Parce qu’elle considère toutes les coalitions possibles, la méthode de SHAP tient compte des coalitions entre les variables. Autre intérêt, elle n’impose pas d’hypothèse particulière sur les données.</p>
+</li>
+<li><p>L’implémentation proposée dans ce notebook ne fonctionne que pour un nombre modéré de joueurs. Si ce dernier augmente, le nombre de coalitions à parcourir explose (2^m).</p>
+</li>
+<li><p>Attention : tandis que l’évaluation des modèles d'apprentissage est bien maîtrisée - les métriques ne manquent pas - l’évaluation d’une méthode d’interprétabilité ne peut se faire que sur la base d’exemples validés par un expert métier.</p>
+</li>
 </ul>
 
 </div>
@@ -16218,6 +16278,7 @@ Somme des contributions pondérées de la variable D : -1.330156
 <li><a href="https://christophm.github.io/interpretable-ml-book/shap.html">https://christophm.github.io/interpretable-ml-book/shap.html</a></li>
 <li><a href="https://edden-gerber.github.io/shapley-part-1/">https://edden-gerber.github.io/shapley-part-1/</a></li>
 <li><a href="https://edden-gerber.github.io/shapley-part-2/">https://edden-gerber.github.io/shapley-part-2/</a></li>
+<li><a href="https://www.quantmetry.com/blog/valeurs-de-shapley/">https://www.quantmetry.com/blog/valeurs-de-shapley/</a> </li>
 </ul>
 
 </div>
